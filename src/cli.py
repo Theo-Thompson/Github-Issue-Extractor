@@ -759,7 +759,7 @@ def prompt_for_filters() -> Dict[str, Any]:
                          choices=['all', 'open', 'closed'],
                          default='all'),
             inquirer.Text('labels', message="Filter by labels (comma-separated)"),
-            inquirer.Text('milestone', message="Filter by milestone"),
+            inquirer.Text('milestone', message="Filter by milestone (title, '*' for any, 'none' for no milestone)"),
             inquirer.Text('since', message="Filter since date (YYYY-MM-DD)"),
         ]
         

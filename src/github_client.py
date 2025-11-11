@@ -162,7 +162,7 @@ class GitHubClient:
             filters: Optional dictionary of filter parameters:
                 - author: Filter by issue author username
                 - assignee: Filter by assignee username
-                - milestone: Filter by milestone title
+                - milestone: Filter by milestone title, '*' (any milestone), or 'none' (no milestone)
                 - labels: List of label names (issues must have all)
                 - state: 'open', 'closed', or 'all' (default: 'all')
                 - since: ISO format date string (YYYY-MM-DD)
@@ -182,6 +182,22 @@ class GitHubClient:
             
             # Build API parameters from filters
             api_params = self._build_api_params(filters)
+            
+            # Handle milestone filter - resolve title to number
+            if filters.get('milestone'):
+                milestone_value = filters['milestone']
+                resolved_milestone = self._resolve_milestone(repo, milestone_value)
+                
+                if resolved_milestone:
+                    # Successfully resolved milestone title to number
+                    api_params['milestone'] = resolved_milestone
+                else:
+                    # Milestone not found in repository
+                    raise Exception(
+                        f"Milestone '{milestone_value}' not found in {repo_name}. "
+                        f"Please check the milestone name or use '*' for any milestone, "
+                        f"'none' for no milestone."
+                    )
             
             # Fetch issues with API-level filters
             issues = repo.get_issues(**api_params)
@@ -203,6 +219,9 @@ class GitHubClient:
             
         except GithubException as e:
             raise Exception(f"Failed to fetch issues from {repo_name}: {str(e)}")
+        except Exception as e:
+            # Catch any other exceptions and provide context
+            raise Exception(f"Error fetching issues from {repo_name}: {str(e)}")
     
     def _build_api_params(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """Build PyGithub API parameters from filter dictionary.
@@ -228,9 +247,8 @@ class GitHubClient:
         if filters.get('assignee'):
             params['assignee'] = filters['assignee']
         
-        # Milestone filter (API supports this)
-        if filters.get('milestone'):
-            params['milestone'] = filters['milestone']
+        # Milestone filter - NOT added here, will be resolved in fetch_issues()
+        # (API requires milestone number, but user provides title)
         
         # Labels filter (API supports this)
         if filters.get('labels'):
@@ -248,6 +266,38 @@ class GitHubClient:
                 pass  # Invalid date format, skip filter
         
         return params
+    
+    def _resolve_milestone(self, repo, milestone_value: str):
+        """Resolve milestone title to Milestone object or special value.
+        
+        PyGithub's get_issues() expects either a Milestone object or special values
+        ('*' for any milestone, 'none' for no milestone), but users enter titles.
+        This method converts a milestone title to the corresponding Milestone object.
+        
+        Args:
+            repo: PyGithub Repository object
+            milestone_value: Milestone title, '*', or 'none'
+            
+        Returns:
+            Milestone object, '*', 'none', or None if not found
+        """
+        # Handle special values
+        if milestone_value in ['*', 'none']:
+            return milestone_value
+        
+        try:
+            # Fetch all milestones (both open and closed)
+            for milestone in repo.get_milestones(state='all'):
+                if milestone.title == milestone_value:
+                    # Return the Milestone object itself
+                    return milestone
+            
+            # Milestone not found
+            return None
+            
+        except GithubException:
+            # If we can't fetch milestones, return None
+            return None
     
     def _matches_client_filters(self, issue, filters: Dict[str, Any]) -> bool:
         """Check if issue matches client-side filters.
