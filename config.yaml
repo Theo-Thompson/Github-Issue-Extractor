@@ -1,0 +1,10 @@
+# GitHub Issue Extractor Configuration
+# Repositories to track
+
+repositories:
+- DBDHub/SecuritasOfficer-Android
+- DBDHub/SecuritasOfficer-iOS
+- DBDHub/sna_portal_api
+- DBDHub/sna_portal_react
+- DBDHub/sna_wfm_api
+- octocat/Hello-World
