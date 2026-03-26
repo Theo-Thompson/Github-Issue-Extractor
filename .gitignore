@@ -38,6 +38,7 @@ ENV/
 # Generated files
 issues/
 reports/
+ad-hoc/
 
 # OS
 .DS_Store

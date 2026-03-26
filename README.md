@@ -1,26 +1,56 @@
 # GitHub Issue Extractor
 
-A simple tool to download and track GitHub issues from your projects. Issues are saved as readable markdown files on your computer, and the tool can automatically detect when issues change.
+A tool that downloads your GitHub issues as readable text files, keeps them in sync as things change on GitHub, and lets you edit issue titles and descriptions right on your computer and push those edits back.
+
+---
 
 ## What This Tool Does
 
-- **Downloads GitHub Issues**: Saves all your GitHub issues as text files on your computer
-- **Tracks Multiple Projects**: Works with as many GitHub repositories as you want
-- **Detects Changes**: Automatically finds new or updated issues when you run it again
-- **Filters Issues**: Choose exactly which issues to download (by author, labels, dates, etc.)
-- **Creates Reports**: Generates summaries of what changed since last time
+- **Downloads GitHub Issues** — Saves every issue as a plain text file you can open in any app
+- **Tracks Multiple Repositories** — Works with as many GitHub repositories as you want
+- **Stays in Sync** — Detects new, changed, and deleted issues each time you run an update
+- **Filters Issues** — Choose exactly which issues to download (by author, label, date, and more)
+- **Edit Locally, Push Back** — Edit an issue's title or description on your computer and send the change back to GitHub with one command
+- **Updates Project Status** — Change an issue's project board status (e.g. move it to "Done") without opening a browser
+- **Posts Comments** — Add a comment to any issue directly from the command line
+- **Creates Change Reports** — Generates a summary of everything that changed since last time
+
+---
+
+## How It Works
+
+```
+Your Computer                         GitHub
+─────────────────────────────────     ──────────────────────
+issues/
+  my-org-my-repo/
+    issue-42.md   ◄── run / update ──  GitHub Issues API
+    issue-43.md
+    ...
+  .metadata.json  (internal, tracks   push  ──────────────►  GitHub Issues API
+                   what has changed)   comment  ───────────►  GitHub Issues API
+                                       set-status  ─────────►  GitHub Projects API
+reports/
+  changes-2026-03-20.md  (update log)
+```
+
+When you run `update`, the tool compares each locally stored issue against the current state on GitHub. New issues are downloaded, changed issues are refreshed, and issues that have been removed from GitHub are deleted from your computer. A change report is written to the `reports/` folder.
+
+When you edit a local issue file and run `push`, the tool notices the file has changed and sends the updated title and description back to GitHub.
+
+---
 
 ## Setup Instructions
 
 ### Step 1: Install Python
 
-You need Python 3.7 or newer. Check if you have it:
+You need Python 3.8 or newer. Check if you have it:
 
 ```bash
 python3 --version
 ```
 
-If you don't have Python, download it from [python.org](https://www.python.org/downloads/)
+If you don't have Python, download it from [python.org](https://www.python.org/downloads/).
 
 ### Step 2: Download This Tool
 
@@ -29,16 +59,14 @@ git clone <your-repo-url>
 cd Github-Issue-Extractor
 ```
 
-### Step 3: Set Up the Environment
-
-Create a safe space for the tool to run:
+### Step 3: Create a Virtual Environment
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-**Note for Windows users:** Use `venv\Scripts\activate` instead
+**Windows users:** use `venv\Scripts\activate` instead.
 
 ### Step 4: Install Required Packages
 
@@ -48,16 +76,22 @@ pip install -r requirements.txt
 
 ### Step 5: Get a GitHub Token
 
-This lets the tool access GitHub on your behalf:
+The tool needs a personal access token to read (and optionally write) data on GitHub.
 
 1. Go to [https://github.com/settings/tokens](https://github.com/settings/tokens)
-2. Click "Generate new token (classic)"
+2. Click **"Generate new token (classic)"**
 3. Give it a name like "Issue Extractor"
-4. Under "Select scopes", check:
-   - `public_repo` (if you only need public repositories)
-   - `repo` (if you need private repositories too)
-5. Click "Generate token" at the bottom
-6. **Copy the token** (it starts with `ghp_` or `github_pat_`)
+4. Under **Select scopes**, check the following:
+
+| Scope | When you need it |
+|---|---|
+| `public_repo` | Reading issues from public repositories |
+| `repo` | Reading issues from **private** repositories, or pushing edits back |
+| `project` | Using the `set-status` command to update project board columns |
+| `read:org` | Listing projects that belong to an organisation |
+
+5. Click **"Generate token"** at the bottom
+6. **Copy the token immediately** — GitHub only shows it once
 
 Now save your token:
 
@@ -65,332 +99,369 @@ Now save your token:
 cp .env.example .env
 ```
 
-Open the `.env` file in a text editor and replace `your_github_token_here` with your actual token:
+Open `.env` in a text editor and paste your token:
 
 ```
 GITHUB_TOKEN=ghp_your_actual_token_here
 ```
 
-**Important:** Never share this token with anyone!
+> **Important:** Never share this file or commit it to git.
 
-## How to Use
+---
 
-### Run the Tool
+## Where Issues Are Saved
 
-Simply run:
-
-```bash
-python -m src.cli run
-```
-
-**The tool will guide you through 4 simple steps:**
-
-**STEP 1: Choose Selection Method**
-- Select individual repositories, OR
-- Select by GitHub Project (all issues from a project board)
-
-**STEP 2: Select Repositories or Project**
-- **If selecting repositories:**
-  - The tool automatically finds all repositories you have access to
-  - Shows you a list with the number of open issues in each
-  - Use arrow keys to navigate, SPACE to select, ENTER to confirm
-- **If selecting by project:**
-  - Shows all your GitHub Projects (classic project boards)
-  - Select one project
-  - Tool automatically finds all repositories with issues in that project
-
-**STEP 3: Apply Filters (Optional)**  
-- Choose whether you want to filter issues
-- If yes, answer simple questions:
-  - Filter by author? (leave blank to skip)
-  - Filter by assignee?
-  - Filter by state? (open/closed/all)
-  - Filter by labels?
-  - Filter by milestone?
-  - Filter since date?
-
-**STEP 4: Extract Issues**
-- The tool downloads all matching issues
-- Saves them as markdown files
-- Shows progress for each repository
-- Automatically saves your configuration for next time
-
-### Check for Updates
-
-After your first run, periodically check for changes:
+By default, issues are saved to an `issues/` folder inside this project. To save them somewhere else, add a `PROJECT_CONTEXT_DIR` line to your `.env` file:
 
 ```bash
-python -m src.cli update
+PROJECT_CONTEXT_DIR=~/Documents/ProjectContext
 ```
 
-This will:
-- Use your saved repository list and filters
-- Check for new issues
-- Find updated issues
-- Save any changes
-- Create a report in the `reports/` folder
+Issues will then be saved to `~/Documents/ProjectContext/github-issues/`.
 
-## Selection Methods
+---
 
-### Select by Repositories
-Choose this when you want to:
-- Pick specific repositories manually
-- Track issues from repos that aren't in a project
-- Have full control over which repos to include
+## Commands
 
-### Select by GitHub Project
-Choose this when you want to:
-- Extract all issues from a project board
-- Track work organized in a GitHub Project
-- Get issues from multiple repos that are part of one project
+### `run` — First-time setup and issue download
 
-**Note:** The tool finds classic GitHub Projects (project boards). It looks in:
-- Your organization projects
-- Repository-level projects
+```bash
+python -m src run
+```
 
-## Understanding Filters
+This is where you start. The tool walks you through four steps:
 
-When you run the tool, you'll be asked if you want to apply filters. Filters let you download only specific issues instead of everything.
+**Step 1 — Choose how to select issues**
+- *Select individual repositories* — pick repos from a list
+- *Select by GitHub Project* — all issues from a project board at once
 
-### Available Filters:
+**Step 2 — Pick your repositories or project**
 
-- **Author**: Only issues created by a specific user
-- **Assignee**: Only issues assigned to a specific user  
-- **State**: Choose open, closed, or all issues
-- **Labels**: Only issues with specific labels (comma-separated like: bug,urgent)
-- **Milestone**: Only issues in a specific milestone
-- **Since Date**: Only issues created/updated since a date (format: YYYY-MM-DD)
+The tool fetches everything you have access to and shows it as a list. Use the **arrow keys** to move, **Space** to select, and **Enter** to confirm.
 
-### When to Use Filters:
+**Step 3 — Apply filters (optional)**
 
-- **Track your work**: Filter by your username as assignee
-- **Bug triage**: Filter by "bug" label and "open" state
-- **Sprint planning**: Filter by current milestone
-- **Monthly reports**: Filter by date range
+You can narrow down which issues to download. Leave any field blank to skip it.
 
-**Note:** Filters are saved automatically. When you run `update`, it uses the same filters to stay consistent.
+| Filter | What it does |
+|---|---|
+| Author | Only issues created by a specific GitHub username |
+| Assignee | Only issues assigned to a specific username |
+| State | `open`, `closed`, or `all` |
+| Labels | Only issues with these labels (comma-separated, e.g. `bug,urgent`) |
+| Milestone | Only issues in a named milestone |
+| Since date | Only issues updated after this date (`YYYY-MM-DD`) |
 
-## Understanding the Output
+Filters are saved automatically, so `update` uses the same filters next time.
 
-### Where Are My Issues?
+**Step 4 — Download**
 
-Issues are saved in the `issues/` folder:
+The tool downloads every matching issue and saves it as a Markdown file. Progress is shown as it goes.
+
+---
+
+### `update` — Sync changes from GitHub
+
+```bash
+python -m src update
+```
+
+Run this regularly to stay current. For each tracked repository, the tool will:
+
+- Download **new** issues that appeared since last time
+- Refresh **updated** issues whose content changed
+- **Remove** local files for issues that were deleted or moved on GitHub
+- Print a short summary: `✓ New: 2, Updated: 5, Removed: 1`
+- Write a full change report to the `reports/` folder
+
+> **Tip:** Schedule this to run automatically — see [Automating Updates](#automating-updates).
+
+---
+
+### `push` — Send your local edits back to GitHub
+
+```bash
+python -m src push
+```
+
+If you have edited an issue's title or description in its local Markdown file, this command sends those changes back to GitHub. The tool compares the file on disk against the version it originally saved. Only files you have changed are uploaded.
+
+**To preview what would be pushed without actually changing anything:**
+
+```bash
+python -m src push --dry-run
+```
+
+> **Note:** Only the issue **title** and **body** can be pushed. Labels, assignees, state, and milestone must be changed directly on GitHub or via `set-status`.
+>
+> Issues saved before this version of the tool was installed do not have a stored baseline. Run `python -m src update` first to establish a baseline, then edit and push as normal.
+
+---
+
+### `set-status` — Move an issue to a different project column
+
+```bash
+python -m src set-status OWNER/REPO ISSUE_NUMBER "STATUS_NAME"
+```
+
+This updates the **Status** field on a GitHub Projects v2 board — for example, moving an issue to "In Progress" or "Done" — without needing to open a browser.
+
+**Examples:**
+
+```bash
+# Move issue #42 to "Done"
+python -m src set-status MyOrg/MyApp 42 "Done"
+
+# Move issue #17 to "In Progress", specifying which project
+python -m src set-status MyOrg/MyApp 17 "In Progress" --project "Q2 Roadmap"
+
+# See all valid status values for a project
+python -m src set-status MyOrg/MyApp 0 "" --project "Q2 Roadmap" --list-statuses
+```
+
+> **Requirement:** Your GitHub token must have the `project` scope. If the token only has `read:project`, the command will tell you exactly what to change.
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--project NAME` | The project board to update. Required if the organisation has more than one project. |
+| `--org LOGIN` | The organisation login. Defaults to the owner part of `OWNER/REPO`. |
+| `--list-statuses` | Print all available status values for the project, then exit. |
+
+---
+
+### `comment` — Post a comment on an issue
+
+```bash
+python -m src comment OWNER/REPO ISSUE_NUMBER "Your comment text"
+```
+
+Adds a new comment to a GitHub issue and refreshes the local file so the comment appears immediately in your local copy.
+
+**Example:**
+
+```bash
+python -m src comment MyOrg/MyApp 42 "Moving back to Securitas Review for the April release"
+```
+
+After the comment is posted, the local `issue-42.md` file is updated to include the new comment.
+
+> **Note:** Only the issue **body** and **title** can be edited via `push`. To add new comments, use this command.
+
+---
+
+### `status` — See what's currently tracked
+
+```bash
+python -m src status
+```
+
+Shows a quick overview: which repositories are tracked, how many issues are stored, and how many are open vs. closed.
+
+---
+
+### `discover` — Find repositories to add
+
+```bash
+python -m src discover
+python -m src discover --save   # also writes them to config.yaml
+```
+
+Lists every repository your token has access to. Select any you want to start tracking and optionally save them to the configuration file automatically.
+
+---
+
+## Understanding the Local Files
+
+### Issue files
+
+Issues are saved in the storage folder, organised by repository:
 
 ```
 issues/
-├── facebook-react/
+├── my-org-my-app/
 │   ├── issue-1.md
-│   ├── issue-2.md
-│   └── issue-3.md
-└── microsoft-vscode/
-    ├── issue-1.md
-    └── issue-2.md
+│   ├── issue-42.md
+│   └── ...
+└── another-org-another-repo/
+    ├── issue-7.md
+    └── ...
 ```
 
-Each issue is a text file you can open with any text editor.
+Each file is plain Markdown. The header block (between the `---` lines) holds metadata like state, labels, and author. Below that is the issue title, the full description, and all comments.
 
-### What's in an Issue File?
-
-Each file contains:
-- Issue title and description
-- Who created it and when
-- Labels and assignees
-- All comments
-- Current status (open/closed)
-
-Example:
 ```markdown
 ---
 number: 42
-title: Bug in login form
+title: Login button broken on mobile
 state: open
 labels: [bug, high-priority]
 author: johndoe
+assignees: [janesmith]
 created_at: 2025-01-01T10:00:00Z
+updated_at: 2025-03-15T09:12:00Z
+url: https://github.com/my-org/my-app/issues/42
 ---
 
-# Bug in login form
+# Login button broken on mobile
 
-The login button doesn't work on mobile devices...
+The login button doesn't respond to taps on iOS 17...
 
 ## Comments
 
-### Comment by developer1 on 2025-01-02T14:30:00Z
+### Comment by janesmith on 2025-01-02T14:30:00Z
 
-Thanks for reporting. We'll fix this in the next release.
+Confirmed. Assigning to myself — will fix in the next sprint.
 ```
 
-### Change Reports
+> **Editing issues locally:** You can change the **title** (the `# Heading` line) and the **body text** directly in this file. Run `python -m src push` afterwards to send the changes to GitHub. Do not edit the metadata block between the `---` lines; those values are managed by the tool.
 
-After running `update`, check the `reports/` folder for summaries of what changed.
+### Change reports
+
+After every `update` run a report is written to:
+
+```
+reports/changes-YYYY-MM-DD-HH-MM-SS.md
+```
+
+It lists every new, changed, and removed issue grouped by repository, with links back to GitHub.
+
+### Configuration file
+
+`config.yaml` stores the list of repositories the tool tracks. It is created and updated automatically by `run` and `discover`. You can open it and remove a repository name if you want to stop tracking it, but otherwise you don't need to edit it manually.
+
+---
+
+## Typical Workflow
+
+```
+First time
+──────────
+python -m src run
+  → choose repos, set filters, download everything
+
+Every day / week
+────────────────
+python -m src update
+  → new and changed issues downloaded, deleted ones removed, report saved
+
+When you want to edit an issue
+───────────────────────────────
+1. Open issues/my-org-my-repo/issue-42.md in any text editor
+2. Change the title heading or body text
+3. python -m src push
+   → only the files you changed are sent to GitHub
+
+When you want to move an issue on the project board
+────────────────────────────────────────────────────
+python -m src set-status my-org/my-repo 42 "Done"
+
+When you want to leave a comment on an issue
+─────────────────────────────────────────────
+python -m src comment my-org/my-repo 42 "Your comment here"
+  → comment posted to GitHub, local file refreshed
+```
+
+---
+
+## Automating Updates
+
+### Mac / Linux (cron)
+
+```bash
+crontab -e
+```
+
+Add this line to run every day at 9 AM:
+
+```
+0 9 * * * cd /path/to/Github-Issue-Extractor && source venv/bin/activate && python -m src update
+```
+
+### Windows (Task Scheduler)
+
+1. Open Task Scheduler and create a new task
+2. Set the program to: `C:\path\to\venv\Scripts\python.exe`
+3. Set arguments to: `-m src update`
+4. Set the working directory to your project folder
+
+---
 
 ## Troubleshooting
 
 ### "GITHUB_TOKEN not found"
 
-**Problem:** The tool can't find your GitHub token.
+The tool cannot find your token.
 
-**Solution:**
-1. Make sure you created the `.env` file: `cp .env.example .env`
-2. Open `.env` and check your token is there
-3. Make sure the line looks like: `GITHUB_TOKEN=ghp_your_token`
-4. No spaces around the `=` sign
+1. Check that you created `.env`: `cp .env.example .env`
+2. Open `.env` and confirm the token is on a line like `GITHUB_TOKEN=ghp_...`
+3. There should be no spaces around the `=` sign
 
-### "Failed to fetch issues"
+### "Failed to fetch issues" or "Permission denied"
 
-**Problem:** Can't download issues from a repository.
+- Confirm the repository name is spelled correctly in `config.yaml` (format: `owner/repo`)
+- Confirm you can open the repository in your browser while logged into GitHub
+- If the repository is private, your token needs the `repo` scope
 
-**Possible causes:**
-- Repository name is spelled wrong (check it's `owner/repo`)
-- Repository is private and your token doesn't have `repo` permission
-- Repository doesn't exist or you don't have access
+### "GitHub API permission error" when using `set-status`
 
-**Solution:**
-- Double-check the repository name in `config.yaml`
-- Make sure you can view the repository on GitHub in your browser
-- Regenerate your token with the `repo` scope if needed
+Your token is missing the `project` scope. Go back to [GitHub token settings](https://github.com/settings/tokens), edit the token, and enable **project** under the Write column.
 
-### "Command not found: python"
+### "Issues have no stored hash — run 'update' first"
 
-**Problem:** Your computer doesn't recognize the `python` command.
+The `push` command skips issues that were saved by an older version of the tool (before the file-tracking feature was added). Run `python -m src update` once to establish a baseline for all existing files. After that, `push` will work normally.
 
-**Solution:**
-- Try `python3` instead of `python`
-- Make sure Python is installed: download from [python.org](https://www.python.org/downloads/)
+### No issues found (0 results)
 
-### Interactive Selection Not Working
+- Your filters may be too restrictive — try running again with no filters
+- The repository may genuinely have no issues matching your criteria
+- Pull requests are always excluded; they look like issues in some GitHub views
 
-**Problem:** The repository selection menu doesn't appear.
+### Interactive menu doesn't appear
 
-**Solution:**
-- The tool will automatically select all repositories
-- You can continue without the interactive menu
-- Try running the command in a different terminal if needed
+The arrow-key selection menu requires a proper terminal. If it doesn't appear, try running the command in a standard Terminal or Command Prompt window rather than inside an IDE's embedded terminal.
 
-### No Issues Found
+### Connection errors or timeouts
 
-**Problem:** The tool says it found 0 issues.
-
-**Possible causes:**
-- Your filters are too restrictive
-- The repository actually has no issues
-- Issues are pull requests (the tool skips these)
-
-**Solution:**
-- Run again and choose not to apply filters
-- Check the repository on GitHub to see if issues exist
-- If using filters, try less restrictive ones
-
-### No Repositories Found
-
-**Problem:** The tool finds no repositories.
-
-**Possible causes:**
-- Your GitHub account has no repositories
-- Your token doesn't have the right permissions
-
-**Solution:**
-- Check that you have repositories on your GitHub account
-- Make sure your token has `repo` or `public_repo` scope
-- Try visiting https://github.com in your browser to verify your account
-
-### No Projects Found
-
-**Problem:** When selecting by project, the tool finds no projects.
-
-**Possible causes:**
-- You don't have any GitHub Projects set up
-- Your projects are the new "Projects (beta)" which aren't fully supported yet
-- Projects are in private organizations without proper access
-
-**Solution:**
-- Try selecting by repositories instead
-- Check if you have classic project boards in your repos or organizations
-- Create a project board if you want to use this feature
-
-## Tips for Success
-
-1. **Start Small**: Begin with one or two repositories to understand how it works
-2. **Use Filters Wisely**: Filters help you focus on what matters
-3. **Run Updates Regularly**: Set a schedule (daily or weekly) to keep issues current
-4. **Backup Your Data**: The `issues/` folder contains all your downloaded issues
-5. **Check Reports**: The `reports/` folder shows what changed over time
-
-## Advanced Tips
-
-### Automate Updates
-
-You can set up the tool to run automatically:
-
-**On Mac/Linux (using cron):**
-```bash
-# Edit your crontab
-crontab -e
-
-# Add this line to run daily at 9 AM:
-0 9 * * * cd /path/to/Github-Issue-Extractor && source venv/bin/activate && python -m src.cli update
-```
-
-**On Windows (using Task Scheduler):**
-1. Open Task Scheduler
-2. Create a new task
-3. Set it to run: `C:\path\to\venv\Scripts\python.exe -m src.cli update`
-4. Set the working directory to your project folder
-
-### Multiple Configurations
-
-You can create different config files for different projects:
-
-```bash
-# Work projects
-python -m src.cli fetch --config work.yaml
-
-# Personal projects
-python -m src.cli fetch --config personal.yaml
-```
-
-### Version Control
-
-Add your `issues/` folder to git to track historical changes:
-
-```bash
-git add issues/
-git commit -m "Update issues"
-```
-
-This creates a full history of how your issues evolved over time.
-
-## Need Help?
-
-If you encounter problems:
-
-1. Check the troubleshooting section above
-2. Make sure you followed all setup steps
-3. Try running `python -m src.cli --help` to see available options
-4. Check that your GitHub token hasn't expired
-
-## What Files Should I Keep?
-
-After running the tool, your folder structure looks like:
-
-```
-Github-Issue-Extractor/
-├── issues/          ← Your downloaded issues (keep this!)
-├── reports/         ← Change reports (keep this!)
-├── src/             ← Tool code (don't modify)
-├── config.yaml      ← Auto-generated configuration (don't modify manually)
-├── .env             ← Your GitHub token (never share this!)
-├── requirements.txt ← Package list (don't modify)
-└── README.md        ← This file
-```
-
-**Don't commit to git:** `.env` (contains your token)
-**Safe to commit:** Everything else (including issues/ to track history)
-
-## License
-
-MIT License - You're free to use, modify, and share this tool.
+- Check your internet connection
+- GitHub's API may be experiencing an outage — check [githubstatus.com](https://githubstatus.com)
+- Your token may have expired; generate a new one at [github.com/settings/tokens](https://github.com/settings/tokens)
 
 ---
 
-**Ready to get started?** Just run `python -m src.cli run` and the tool will guide you through everything!
+## Your Files at a Glance
+
+```
+Github-Issue-Extractor/
+├── issues/           ← Downloaded issues — edit these to use "push"
+├── reports/          ← Change summaries from each "update" run
+├── config.yaml       ← List of tracked repositories (auto-managed)
+├── .env              ← Your GitHub token — never share or commit this
+├── src/              ← Tool source code — no need to touch this
+├── requirements.txt  ← Python package list
+└── README.md         ← This file
+```
+
+**Never commit to git:** `.env`
+
+**Safe to commit (and useful for history):** `issues/`, `reports/`, `config.yaml`
+
+---
+
+## Need Help?
+
+1. Re-read the troubleshooting section above
+2. Run `python -m src --help` to see all available commands
+3. Run `python -m src COMMAND --help` (e.g. `python -m src push --help`) for details on a specific command
+4. Check that your GitHub token has not expired
+
+---
+
+## License
+
+MIT License — free to use, modify, and share.
+
+---
+
+**Ready to start?** Run `python -m src run` and the tool will guide you through everything.

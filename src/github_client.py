@@ -2,9 +2,10 @@
 
 import os
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from github import Github, GithubException
 from dotenv import load_dotenv
+import requests.exceptions
 
 
 class GitHubClient:
@@ -33,8 +34,26 @@ class GitHubClient:
             user = self.client.get_user()
             user.login  # Force API call
             return True
-        except GithubException:
+        except (GithubException, requests.exceptions.RequestException):
             return False
+
+    @staticmethod
+    def _parse_date_to_aware(date_str: str) -> datetime:
+        """Parse a date string into a timezone-aware datetime (UTC).
+
+        Handles both ISO strings with a trailing 'Z' and plain YYYY-MM-DD
+        strings that carry no timezone information.
+
+        Args:
+            date_str: Date string, e.g. '2024-01-15', '2024-01-15T00:00:00Z'
+
+        Returns:
+            Timezone-aware datetime in UTC.
+        """
+        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     
     def get_accessible_repositories(self) -> List[Dict[str, Any]]:
         """Get all repositories the authenticated user has access to.
@@ -89,7 +108,7 @@ class GitHubClient:
                             'type': 'organization',
                             'url': project.html_url,
                         })
-                except:
+                except Exception:
                     pass  # Some orgs may not have projects enabled
             
             # Get user's personal projects
@@ -108,9 +127,9 @@ class GitHubClient:
                                 'url': project.html_url,
                                 'repo': repo.full_name,
                             })
-                    except:
+                    except Exception:
                         pass  # Repo may not have projects
-            except:
+            except Exception:
                 pass
             
             return sorted(projects, key=lambda x: x['name'].lower())
@@ -146,7 +165,7 @@ class GitHubClient:
                             if len(parts) > 1:
                                 repo_path = parts[1].split('/issues/')[0]
                                 repos.add(repo_path)
-                        except:
+                        except Exception:
                             pass
             
             return sorted(list(repos))
@@ -154,7 +173,8 @@ class GitHubClient:
         except GithubException as e:
             raise Exception(f"Failed to fetch project issues: {str(e)}")
     
-    def fetch_issues(self, repo_name: str, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def fetch_issues(self, repo_name: str, filters: Optional[Dict[str, Any]] = None,
+                     include_comments: bool = True) -> List[Dict[str, Any]]:
         """Fetch issues from a repository with optional filtering.
         
         Args:
@@ -167,6 +187,10 @@ class GitHubClient:
                 - state: 'open', 'closed', or 'all' (default: 'all')
                 - since: ISO format date string (YYYY-MM-DD)
                 - until: ISO format date string (YYYY-MM-DD)
+            include_comments: Whether to fetch comments for each issue.
+                Fetching comments costs one extra API call per issue.
+                Keep True (default) when saving full issue files; pass False
+                when only metadata is needed.
             
         Returns:
             List of issue dictionaries with all relevant data
@@ -212,7 +236,7 @@ class GitHubClient:
                 if not self._matches_client_filters(issue, filters):
                     continue
                 
-                issue_data = self._extract_issue_data(issue)
+                issue_data = self._extract_issue_data(issue, include_comments=include_comments)
                 issue_list.append(issue_data)
             
             return issue_list
@@ -260,8 +284,7 @@ class GitHubClient:
         # Since filter (API supports this)
         if filters.get('since'):
             try:
-                since_date = datetime.fromisoformat(filters['since'].replace('Z', '+00:00'))
-                params['since'] = since_date
+                params['since'] = self._parse_date_to_aware(filters['since'])
             except (ValueError, AttributeError):
                 pass  # Invalid date format, skip filter
         
@@ -314,7 +337,7 @@ class GitHubClient:
         # Until date filter (not supported by API)
         if filters.get('until'):
             try:
-                until_date = datetime.fromisoformat(filters['until'].replace('Z', '+00:00'))
+                until_date = self._parse_date_to_aware(filters['until'])
                 if issue.created_at > until_date:
                     return False
             except (ValueError, AttributeError):
@@ -322,24 +345,123 @@ class GitHubClient:
         
         return True
     
-    def _extract_issue_data(self, issue) -> Dict[str, Any]:
-        """Extract all relevant data from a GitHub issue object.
-        
+    def get_issue(self, repo_name: str, issue_number: int,
+                  include_comments: bool = False) -> Dict[str, Any]:
+        """Fetch a single issue by number.
+
         Args:
-            issue: PyGithub Issue object
-            
+            repo_name: Repository name in format 'owner/repo'
+            issue_number: Issue number to retrieve
+            include_comments: Whether to fetch comments (each comment is a
+                              separate API call; keep False when only basic
+                              metadata is needed)
+
         Returns:
-            Dictionary containing all issue data
+            Issue data dictionary (same shape as fetch_issues entries)
+
+        Raises:
+            Exception: If the repository or issue is not found or access is denied.
         """
-        # Extract comments
-        comments = []
-        for comment in issue.get_comments():
-            comments.append({
+        try:
+            repo = self.client.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            return self._extract_issue_data(issue, include_comments=include_comments)
+        except GithubException as e:
+            status = e.status if hasattr(e, 'status') else ''
+            if status == 404:
+                raise Exception(f"Issue #{issue_number} not found in {repo_name}.")
+            raise Exception(f"Failed to fetch issue #{issue_number} from {repo_name}: {e}")
+
+    def create_comment(self, repo_name: str, issue_number: int, body: str) -> Dict[str, Any]:
+        """Post a new comment on a GitHub issue.
+
+        Args:
+            repo_name: Repository name in format 'owner/repo'
+            issue_number: Issue number to comment on
+            body: Comment text (markdown supported)
+
+        Returns:
+            Dict with keys: author, body, created_at, updated_at
+
+        Raises:
+            Exception: If the repository or issue is not found, or the token
+                       lacks write permission (needs 'repo' scope).
+        """
+        try:
+            repo = self.client.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            comment = issue.create_comment(body)
+            return {
                 'author': comment.user.login if comment.user else 'ghost',
                 'body': comment.body or '',
                 'created_at': comment.created_at.isoformat(),
-                'updated_at': comment.updated_at.isoformat()
-            })
+                'updated_at': comment.updated_at.isoformat(),
+            }
+        except GithubException as e:
+            status = e.status if hasattr(e, 'status') else ''
+            if status == 403:
+                raise Exception(
+                    f"Permission denied commenting on issue #{issue_number} in {repo_name}. "
+                    "Ensure your GITHUB_TOKEN has the 'repo' scope."
+                )
+            if status == 404:
+                raise Exception(f"Issue #{issue_number} not found in {repo_name}.")
+            raise Exception(f"Failed to comment on issue #{issue_number} in {repo_name}: {e}")
+
+    def update_issue(self, repo_name: str, issue_number: int, title: str, body: str) -> Dict[str, Any]:
+        """Update the title and/or body of an existing GitHub issue.
+
+        Args:
+            repo_name: Repository name in format 'owner/repo'
+            issue_number: Issue number to update
+            title: New title for the issue
+            body: New body text for the issue
+
+        Returns:
+            Updated issue data dictionary (same shape as fetch_issues entries)
+
+        Raises:
+            Exception: If the repository or issue is not found, or the token
+                       lacks write permission (needs 'repo' scope).
+        """
+        try:
+            repo = self.client.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            issue.edit(title=title, body=body)
+            return self._extract_issue_data(issue, include_comments=True)
+        except GithubException as e:
+            status = e.status if hasattr(e, 'status') else ''
+            if status == 403:
+                raise Exception(
+                    f"Permission denied updating issue #{issue_number} in {repo_name}. "
+                    "Ensure your GITHUB_TOKEN has the 'repo' scope."
+                )
+            if status == 404:
+                raise Exception(f"Issue #{issue_number} not found in {repo_name}.")
+            raise Exception(f"Failed to update issue #{issue_number} in {repo_name}: {e}")
+
+    def _extract_issue_data(self, issue, include_comments: bool = True) -> Dict[str, Any]:
+        """Extract all relevant data from a GitHub issue object.
+
+        Args:
+            issue: PyGithub Issue object
+            include_comments: When True (default), fetch and embed all comments.
+                Each comment triggers a separate API call, so pass False when
+                only basic issue metadata is needed to avoid rate-limit pressure.
+
+        Returns:
+            Dictionary containing all issue data
+        """
+        # Extract comments (one extra API call per issue — skip when not needed)
+        comments = []
+        if include_comments:
+            for comment in issue.get_comments():
+                comments.append({
+                    'author': comment.user.login if comment.user else 'ghost',
+                    'body': comment.body or '',
+                    'created_at': comment.created_at.isoformat(),
+                    'updated_at': comment.updated_at.isoformat()
+                })
         
         # Extract labels
         labels = [label.name for label in issue.labels]
@@ -353,6 +475,7 @@ class GitHubClient:
             'title': issue.title or '',
             'body': issue.body or '',
             'state': issue.state,
+            'status': None,
             'labels': labels,
             'author': issue.user.login if issue.user else 'ghost',
             'assignees': assignees,
